@@ -16,10 +16,14 @@ import java.io.File
 import java.io.IOException
 
 
-data class MetaInfo(val id: String, val title: String, val media: String, val img: String, val isAudio: Boolean)
-data class FileInfo(val title:String, val path:String, val isAudio: Boolean);
+data class MetaInfo(val id: String, val title: String, val audio: String,  val video: String, val img: String)
+data class FileInfo(val title:String, val path:String, val isAudio: Boolean, val lastModified:Long);
 
 object Manager {
+    interface ManagerCallback{
+        fun onDownloadComplete();
+    }
+    private var mCallback:ManagerCallback? = null;
     private var list: ArrayList<Long> = ArrayList()
     private val onComplete: BroadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(ctxt: Context, intent: Intent) {
@@ -28,22 +32,26 @@ object Manager {
             if (list.isEmpty()) {
                 Toast.makeText(ctxt, "All Download complete", Toast.LENGTH_SHORT);
             }
+            mCallback?.onDownloadComplete()
         }
     }
 
-    fun onCreate(activity: Activity) {
+    fun onCreate(activity: Activity, callback: ManagerCallback) {
         activity.registerReceiver(onComplete,
                 IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE));
+        mCallback = callback;
+        mCallback?.onDownloadComplete()
     }
 
     fun onDestroy(activity: Activity) {
         activity.unregisterReceiver(onComplete);
+        mCallback = null;
     }
 
-    fun getDownloadUrl(activity: Activity, url: String, cb: (str: MetaInfo) -> Unit, err:(str:String)->Unit, audioOnly: Boolean = false) {
+    fun getDownloadUrl(activity: Activity, url: String, cb: (str: MetaInfo) -> Unit, err:(str:String)->Unit) {
         val client: OkHttpClient = OkHttpClient();
         try {
-            val url1 = "https://simplestore.dipankar.co.in/api/utils/youtubedl/${if (audioOnly) "audio" else "video"}?id=${url}"
+            val url1 = "https://simplestore.dipankar.co.in/api/utils/youtubedl/info?id=${url}"
             Log.d("DIPANKAR", url1)
             val request: Request = Request.Builder().url(url1).build()
             client.newCall(request).enqueue(object : Callback {
@@ -62,9 +70,10 @@ object Manager {
                             val out = json.getJSONObject("out")
                             activity.runOnUiThread {
                                 var title = out.getString("title")
-                                title = title.replace("[^a-zA-Z0-9 ]".toRegex(), "");
+                                //title = title.replace("[^a-zA-Z0-9 ]".toRegex(), "");
                                 title = title.replace(" ","_")
-                                cb(MetaInfo(out.getString("id"), title, out.getString("media"), out.getString("img"), audioOnly))
+                                title = title.replace("?","");
+                                cb(MetaInfo(out.getString("id"), title, out.getString("audio_url"), out.getString("video_url"), out.getString("img")))
                             }
                         } else {
                             throw Exception(json.getString("msg"));
@@ -86,9 +95,9 @@ object Manager {
         }
     }
 
-    fun downlaodFile(activity: Activity, metaInfo: MetaInfo, cb: (str: MetaInfo) -> Unit) {
+    fun downlaodFile(activity: Activity, metaInfo: MetaInfo, cb: (str: MetaInfo) -> Unit, isAudio: Boolean) {
         val downloadManager = activity.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        val uri: Uri = Uri.parse(metaInfo.media)
+        val uri: Uri = Uri.parse(if(isAudio) metaInfo.audio else metaInfo.video)
         val request = DownloadManager.Request(uri)
         request.setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI or DownloadManager.Request.NETWORK_MOBILE)
         request.setTitle("Downloadig file...")
@@ -98,10 +107,10 @@ object Manager {
         request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
 
         //set the local destination for download file to a path within the application's external files directory
-        request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "/tube/${metaInfo.id}-${metaInfo.title}${if (metaInfo.isAudio) ".mp3" else ".mp4"}")
+        request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "/tube/${metaInfo.id}-${metaInfo.title}${if (isAudio) ".mp3" else ".mp4"}")
         request.setVisibleInDownloadsUi(true);
         request.setMimeType("*/*")
-        val referenceId = downloadManager!!.enqueue(request)
+        val referenceId = downloadManager.enqueue(request)
         list.add(referenceId);
     }
 
@@ -110,14 +119,23 @@ object Manager {
         try {
             val sdCardRoot: File = Environment.getExternalStorageDirectory()
             val yourDir = File(sdCardRoot, "${Environment.DIRECTORY_DOWNLOADS}/tube/")
-            for (f in yourDir.listFiles()) {
-                if (f.isFile())
-                    result.add(FileInfo(f.name, f.absolutePath, f.extension == "mp3"))
+            if(yourDir.listFiles() != null) {
+                for (f in yourDir.listFiles()) {
+                    if (f.isFile())
+                        result.add(
+                            FileInfo(
+                                f.name,
+                                f.absolutePath,
+                                f.extension == "mp3",
+                                f.lastModified()
+                            )
+                        )
+                }
             }
         } catch (e:java.lang.Exception){
             e.printStackTrace()
         }
-
+        result.sortedByDescending {it.lastModified};
         return result;
     }
 }

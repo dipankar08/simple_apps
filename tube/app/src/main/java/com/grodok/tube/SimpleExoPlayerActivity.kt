@@ -86,6 +86,7 @@ class SimpleExoPlayerActivity : AppCompatActivity(), Player.EventListener {
         player?.playWhenReady = playWhenReady
         player?.seekTo(currentWindow, playbackPosition)
         player?.addListener(this)
+        player?.setRepeatMode(Player.REPEAT_MODE_ALL)
 
         val dataSpec = DataSpec(Uri.parse(mPath));
         val fileDataSource =  FileDataSource();
@@ -142,6 +143,7 @@ class SimpleExoPlayerActivity : AppCompatActivity(), Player.EventListener {
             ExoPlayer.STATE_ENDED -> "ExoPlayer.STATE_ENDED"
             else -> "UNKNOWN_STATE"
         }
+        mPlayerView?.keepScreenOn = !(playbackState == Player.STATE_IDLE || playbackState == Player.STATE_ENDED || !playWhenReady)
         Log.d(
             TAG, "changed state to " + stateString
                     + " playWhenReady: " + playWhenReady

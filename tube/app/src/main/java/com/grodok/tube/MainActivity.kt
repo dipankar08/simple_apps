@@ -10,17 +10,28 @@ import kotlinx.android.synthetic.main.activity_main.*
 class MainActivity : AppCompatActivity() {
     var mFileList: List<FileInfo> = ArrayList()
     lateinit var mArrayAdapter: ArrayAdapter<String>
+    var mMetaInfo:MetaInfo? = null;
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
+        fetch_meta.setOnClickListener {
+            fetch(it)
+        }
         download_audio.setOnClickListener {
             status("downloading audio....")
             download(true, it)
         }
+
         download_video.setOnClickListener {
             status("downloading video....")
             download(false, it)
         }
+        reload_list.setOnClickListener {
+            status("Reloading list...")
+            reloadList();
+        }
+
         mArrayAdapter = ArrayAdapter(this, android.R.layout.simple_list_item_1)
         list.adapter = mArrayAdapter
         list.setOnItemClickListener { adapterView, view, i, l ->
@@ -30,6 +41,11 @@ class MainActivity : AppCompatActivity() {
                 SimpleExoPlayerActivity.startPlayerActivity(this, file.path)
             }
         }
+        Manager.onCreate(this, object :Manager.ManagerCallback{
+            override fun onDownloadComplete() {
+                reloadList()
+            }
+        });
         reloadList()
     }
 
@@ -37,12 +53,12 @@ class MainActivity : AppCompatActivity() {
         status("loading list....")
         mArrayAdapter.clear()
         mFileList = Manager.loadFileList(this)
-        mArrayAdapter.addAll(mFileList.map { x -> x.title })
+        mArrayAdapter.addAll(mFileList.map { x -> "[${x.lastModified}]${x.title}" })
         mArrayAdapter.notifyDataSetChanged()
         status("list loaded.")
     }
 
-    fun download(audio: Boolean, view: View) {
+    fun fetch(view: View){
         if (link.text.toString().length < 5) {
             Snackbar.make(view, "Please write some URL", Snackbar.LENGTH_LONG)
                 .setAction("Action", null).show()
@@ -53,17 +69,32 @@ class MainActivity : AppCompatActivity() {
             this,
             link.text.toString(),
             {
-                status("Downloading file ....")
-                link.setText("")
-                Manager.downlaodFile(this, it, {
-                    Manager.loadFileList(this)
-                })
+                mMetaInfo = it;
+                status("Info: ${mMetaInfo?.title}")
             }
             , {
                 status(it)
-            },
-            audio
+            }
         )
+    }
+
+    fun download(audio: Boolean, view: View) {
+        status("Downloading file ....")
+        link.setText("")
+        if(mMetaInfo == null){
+            status("Please first fetch the info..")
+        }
+        mMetaInfo?.let {
+            Manager.downlaodFile(this,it , {
+                status("Download complete..")
+                Manager.loadFileList(this)
+            }, audio)
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        reloadList();
     }
 
     override fun onDestroy() {
